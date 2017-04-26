@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <meta name="description" content="Lactation Counseling Referral Portal">
+    <meta name="author" content="CsPanda">
+    <title>Lactation Counseling Referral Portal</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+    <link href="assets/css/ie10-viewport-bug-workaround.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="css/bootstrap-theme.min.css" rel="stylesheet">
+    <link href="dashboard.css" rel="stylesheet">
+
+    <!-- Just for debugging purposes. Don't actually copy these 2 lines! -->
+    <!--[if lt IE 9]><script src="../../assets/js/ie8-responsive-file-warning.js"></script><![endif]-->
+    <script src="assets/js/ie-emulation-modes-warning.js"></script>
+    <script src="https://apps.hspconsortium.org/hspc-reference-apps/static/jsfiddle/fhir-client.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+<nav class="navbar navbar-inverse navbar-fixed-top">
+ <div class="container-fluid">
+  <div class="navbar-header">
+   <a class="navbar-brand" href="#">Lactation Counseling Referral Portal</a>
+  </div>
+ </div>
+</nav>
+ 
+
+<script type="text/javascript">
+
+  // Global variables
+  var patient;
+  var pid
+  var hcs = "HealthcareService/";
+  var patientprefix = "Patient/";
+  var questiondate
+
+
+  // Perform referral function
+  function performReferral(id) {
+    
+  var resource = {
+    "resourceType": "ReferralRequest",
+      "status": "requested",
+      "patient": {
+        "reference": patientprefix + patient.id
+       },
+       "supportingInformation": {
+         "reference": hcs+id
+       }
+  };
+
+    // Create the ReferralRequest
+    patient.api.create({resource: resource}).done(function(r) { location.reload(true); }); 
+  }
+
+  FHIR.oauth2.ready(function (fClient) {
+
+    patient = fClient.patient;
+    smartt = fClient;
+    var patientCountry = null;
+    var patientState = null;
+    var patientDistrict = null;
+    var hasPatientLocation = false;
+
+    // Get patient details
+    $.when(patient.read()).done(function (p) 
+   {
+      // Get patient info
+      //var pid=p_id;
+      pid = "Patient/" + p.id;
+      console.log(pid);
+      
+      var name = p.name[0];
+      
+      var formattedName = name.given[0] + " " + name.family;
+      $("#patientName").text(formattedName);
+      
+      var gender=p.gender;
+      $("#Gender").text(gender);
+
+      var DOB=p.birthDate
+      DOB=DOB.substr(0, DOB.indexOf('T'));
+      $("#DOB").text(DOB);
+      
+      var mp=p.telecom[1].value;
+      $("#mobile").text(mp);
+      
+      var email=p.telecom[2].value;
+      $("#Email").text(email);
+      
+      // Get home address
+      for (var i = 0; i < p.address.length ; i++ ) 
+      {
+        if (p.address[i].use == "home") {
+          patientCountry = p.address[i].country;
+          patientState = p.address[i].state;
+          patientDistrict = p.address[i].district;
+          if (patientCountry != null && patientState != null && patientDistrict != null) hasPatientLocation = true;
+          break;
+        }
+      }
+
+
+
+      //get questionnaire !!!!! 
+      var demo = {
+      //serviceUrl: "https://fhir-open-api-dstu2.smarthealthit.org",
+      serviceUrl: "https://secure-api.hspconsortium.org/FHIRPit/open"
+      
+      };
+
+      var smartt = FHIR.client(demo);
+      smartt.api.search({type: 'QuestionnaireResponse',query: {author: {$reference: "Patient/"+pid}}}).done(function(q)
+     {
+      
+        
+      //pull out patient generated breastfeeding data (start/stop time/duration...etc)
+      if (q.data.entry != null){
+       q.data.entry.forEach(function(quest){
+        if (quest.resource.group.title == "Patient Generated Breastfeeding Data ")
+        {
+         
+         var logdate=quest.resource.group.question[0].answer[0].valueDate
+
+         var logrow = "<td><p>" + logdate +"</td>"
+
+          for(var i =1 ; i < quest.resource.group.question.length;i++)
+          {logrow = logrow + "<td><p>"+ quest.resource.group.question[i].answer[0].valueString +"</td>"}
+
+          logrow= "<tr>" +logrow + "</tr>";
+          $("#reportdata").append(logrow);
+        }
+
+        else 
+        {
+            var questiondate=quest.resource.meta.lastUpdated
+
+            questiondate=questiondate.substr(0,questiondate.indexOf('T'));
+            
+
+            var questionrow = "<tr><th rowspan=\"7\">" + questiondate + "</th><td>" + quest.resource.group.question[0].text + "</td><td><p>" + quest.resource.group.question[0].answer[0].valueBoolean + "</td></tr>"
+            $("#questionnaire").append(questionrow);
+            
+            if (quest.resource.group.question[1].answer!=null)
+            {var questionrow = "<tr><td>" + quest.resource.group.question[1].text + "</td><td><p>" + quest.resource.group.question[1].answer[0].valueString + "</td></tr>"
+            $("#questionnaire").append(questionrow);}else{
+              questionrow = "<tr><td>" + quest.resource.group.question[1].text + "</td><td><p>" + "No"+ "</td></tr>"
+            $("#questionnaire").append(questionrow);
+            }
+
+            for(var i =2; i < quest.resource.group.question.length ;i++){
+
+               questionrow = "<tr><td>" + quest.resource.group.question[i].text + "</td><td><p>" + quest.resource.group.question[i].answer[0].valueBoolean + "</td></tr>"
+            $("#questionnaire").append(questionrow);
+                 console.log(questionrow);
+             }
+        }
+       })
+      }
+     });
+    });
+
+
+
+
+
+    // Populate referral status window
+    var referralProgramIdCache = [];
+    $.when(patient.api.search({type: "ReferralRequest", query: {}, count: 50}))
+      .done(function (referralSearchResults) {
+
+        if ( referralSearchResults.data.entry != null ) {
+          referralSearchResults.data.entry.forEach(function (referrals) {
+
+            // Search the supporting information to find the associated program ids
+            if ( referrals.resource.supportingInformation != null ) {
+              for (var i = 0; i < referrals.resource.supportingInformation.length ; i++ ) {
+                if (referrals.resource.supportingInformation[i].reference.startsWith(hcs)) {
+
+                  // Cache the program id
+                  var programId = referrals.resource.supportingInformation[i].reference.substr(hcs.length);
+                  referralProgramIdCache.push(programId);
+
+                  // Query for the healthcare service by id
+                  $.when(patient.api.search({type: "HealthcareService", query: { _id: programId }, count: 1}))
+                   .done(function (hcsResults) {
+                     hcsResults.data.entry.forEach(function (associatedHcs) {
+
+                       // !! Display program referral status
+                       var referralRow = "<tr><td>" + associatedHcs.resource.programName + "</td><td><p>" +
+                                         referrals.resource.status + "</td></tr>"
+                       $("#referralResults").append(referralRow);
+
+                     });
+                  });
+                }
+              }
+            }
+          });
+        }
+
+        // Populate available program window
+        $.when(patient.api.search({type: "HealthcareService", query: {}, count: 50}))
+          .done(function (programSearchResults) {
+            programSearchResults.data.entry.forEach(function (programs) {
+
+              // Filter out programs that have already been referred
+              var skip = false;
+              for (var i = 0; i < referralProgramIdCache.length ; i++ ) {
+                if ( referralProgramIdCache[i] == programs.resource.id ) {
+                  skip = true;
+                  break;
+                }
+              }
+
+              // Scan program coverage areas
+              if (!skip && hasPatientLocation) {
+                if (programs.resource.coverageArea != null) {
+                  for (var i = 0; i < programs.resource.coverageArea.length; i++ ) {
+                    $.when(patient.api.search({type: "Location", query: { _id: programs.resource.coverageArea[i].reference }, count: 1}))
+                     .done(function (locationResults) {
+                        locationResults.data.entry.forEach(function(coverageArea) {
+
+                          // Check if patient is in coverage area
+                          if ( coverageArea.resource.address != null &&
+                               coverageArea.resource.address.country == patientCountry &&
+                               coverageArea.resource.address.state == patientState &&
+                               coverageArea.resource.address.district == patientDistrict ) {
+
+                                 // Display location matched program
+                                var programRow = "<tr><td>" + programs.resource.programName + "</td><td><p><button type=\"button\" class=\"btn btn-primary\" onclick=\'performReferral(\"" + programs.resource.id + "\")\'>Refer</button> </td></tr>"
+                                 $("#programTable").append(programRow);
+                          }
+                        });
+                     });
+                  }
+                }
+              }
+            });
+        });
+    });
+  });
+</script>
+
+ <div class="container-fluid">
+  <div class="row">
+    <div class="col-sm-3 col-md-2 sidebar">
+          <ul class="nav nav-sidebar">
+            <li class="active"><a href="#">Overview <span class="sr-only">(current)</span></a></li>
+            <li><a href="report.html">Report</a></li>
+            <li><a href="questionnaire.html">Questionaire</a></li>
+            <li><a href="#">Education</a></li>
+          </ul>
+    </div> 
+  </div>
+  </div>
+
+  <div class="container-fluid">
+   <div class="row">
+     <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 main">
+        <h1 class="page-header">Patient Overview</h1>
+     
+     <div class="panel">
+        <div class="panel-body">
+         
+         <div class="row placeholders">
+          <div class="col-xs-6 col-sm-4 placeholder">
+            <img src="data:image/gif;base64,R0lGODlhAQABAIAAAHd3dwAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==" width="120" height="120" class="img-responsive" alt="Generic placeholder thumbnail">
+             <h4>Patient Name: <span id="patientName">...</span></h4>
+             <span id="patientDistrict" class="text-muted">..</span>
+          </div>
+         
+          <div class="col-xs-6 col-sm-8 placeholder">
+             <h4>Gender: </h4><span id="Gender">...</span>
+             <h4>DOB: </h4><span id="DOB"> ...</span>
+             <h4>Tel: </h4><span id="mobile">...</span>
+             <h4>Email: </h4><span id="Email">...</span>
+           </div>
+
+         </div>
+        </div>
+      </div>
+
+     <div class="col-md-12">
+      <div class="table-responsive">
+      <table id="programTable" class="table table-striped">
+         <thead>
+              <tr>
+                <th width="85%">Eligible Program</th>
+                <th width="25%">Action</th>
+              </tr>
+         </thead>
+      </table>
+   
+      <table id="referralResults" class="table table-striped">
+         <thead>
+              <tr>
+                <th width="85%">Referral Program</th>
+                <th width="15%">Status</th>
+              </tr>
+         </thead>
+      </table>
+
+      <table id="questionnaire" class="table table-striped">
+         <thead>
+              <tr>
+                <th width="20%">Date</th>
+                <th width="70%">Question</th>
+                <th width="10%">Answer</th>
+              </tr>
+         </thead>
+      </table>
+      
+      <table id="reportdata" class="table table-striped">
+        <thead>
+          <tr>
+            <th>LogDate</th>
+            <th>Start time</th>
+            <th>Stop time</th>
+            <th>Duration</th>
+            <th>Diaper Poop or Pee?</th>
+            <th>Breastfeeding left breast</th>
+            <th>Breastfeeding right breast</th>
+          </tr>
+        </thead>
+      </table>
+      </div>
+     </div>
+    </div>
+   </div>
+  </div>
+
+    
+    <script>window.jQuery || document.write('<script src="assets/js/vendor/jquery.min.js"><\/script>')</script>
+    <script src="js/bootstrap.min.js"></script>
+    
+    <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+    <script src="assets/js/ie10-viewport-bug-workaround.js"></script>
+
+  </body>
+</html>
